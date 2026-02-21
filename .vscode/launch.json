@@ -1,0 +1,12 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "c++ Debugger",
+            "request": "launch",
+            "miDebuggerServerAddress": "localhost:3000",
+            "cwd": "${workspaceFolder}",
+            "program": "${workspaceFolder}/install/assignment1/lib/assignment1"
+        }
+    ]
+}
