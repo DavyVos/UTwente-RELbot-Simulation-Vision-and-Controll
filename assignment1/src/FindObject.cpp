@@ -25,28 +25,29 @@ public:
         : Node("FindObject")
     {
         declare_parameter<int>("threshold", 80);
-        declare_parameter<string>("method", "basic");                       // Define methods "basic", "hsvcircle"
+        declare_parameter<string>("method", "brightness");                  // Define methods "brightness", "hsvcircle"
         declare_parameter<std::vector<long>>("hsv_lower", {90, 150, 140});  // set HSV method lower bound
         declare_parameter<std::vector<long>>("hsv_upper", {102, 255, 240}); // setHSV upper bound
-        publisher_ = this->create_publisher<assignment1::msg::ObjectPosition>("objectpos", 10);
+        declare_parameter<bool>("use_preview", false);                      // Display a preview window of what the image processor sees
+        declare_parameter<double>("circularity", 0.0);                      // Threshold for how round the hsvcircle should be
+        mPublisher = this->create_publisher<assignment1::msg::ObjectPosition>("objectpos", 10);
         auto timer_callback =
             [this]() -> void
         {
             auto message = assignment1::msg::ObjectPosition();
-            message.x = this->horizontalCenter_;
-            message.y = this->verticalCenter_;
-            message.z = this->distance_;
-            RCLCPP_INFO(this->get_logger(), "Publishing: '%F, %F", message.x, message.y);
-            this->publisher_->publish(message);
+            message.x = this->mHorizontalCenter;
+            message.y = this->mVerticalCenter;
+            message.z = this->mDistance;
+            this->mPublisher->publish(message);
         };
-        timer_ = this->create_wall_timer(10ms, timer_callback);
+        mTimer = this->create_wall_timer(10ms, timer_callback);
 
         auto image_callback =
             [this](const sensor_msgs::msg::Image::SharedPtr msg) -> void
         {
             string method = get_parameter("method").as_string();
 
-            if (method == "basic")
+            if (method == "brightness")
             {
                 this->findBright(msg);
             }
@@ -56,22 +57,22 @@ public:
             }
         };
 
-        subscription_ = this->create_subscription<sensor_msgs::msg::Image>(
+        mSubscription = this->create_subscription<sensor_msgs::msg::Image>(
             "image",
             10,
             image_callback);
     }
 
 private:
-    rclcpp::TimerBase::SharedPtr timer_;
-    rclcpp::Publisher<assignment1::msg::ObjectPosition>::SharedPtr publisher_;
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subscription_;
+    rclcpp::TimerBase::SharedPtr mTimer;
+    rclcpp::Publisher<assignment1::msg::ObjectPosition>::SharedPtr mPublisher;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr mSubscription;
     void findBright(sensor_msgs::msg::Image::SharedPtr img);
     void findHSV(sensor_msgs::msg::Image::SharedPtr img);
-    size_t count_;
-    double horizontalCenter_;
-    double verticalCenter_;
-    double distance_;
+    size_t mCount;
+    double mHorizontalCenter;
+    double mVerticalCenter;
+    double mDistance;
 };
 
 void FindBrightObject::findBright(sensor_msgs::msg::Image::SharedPtr msg)
@@ -86,13 +87,13 @@ void FindBrightObject::findBright(sensor_msgs::msg::Image::SharedPtr msg)
     int countWhitePixels = 0;
     int threshold_value = get_parameter("threshold").as_int();
     // https://docs.opencv.org/4.x/db/d8e/tutorial_threshold.html
-    cv::threshold(grayImage, mask, threshold_value, max_binary_value, threshold_type);
+    cv::threshold(grayImage, mask, threshold_value, max_binary_value, CV_THRESH_BINARY);
     for (int i = 0; i < mask.rows; i++)
     {
         for (int j = 0; j < mask.cols; j++)
         {
             int pixelValue = (int)mask.at<uchar>(i, j);
-            if (pixelValue == max_value)
+            if (pixelValue > 0)
             {
                 horizontalWeight += j;
                 verticalWeight += i;
@@ -103,22 +104,22 @@ void FindBrightObject::findBright(sensor_msgs::msg::Image::SharedPtr msg)
 
     if (countWhitePixels == 0)
     {
-        this->horizontalCenter_ = msg->width / 2;
-        this->verticalCenter_ = msg->height / 2;
-        this->distance_ = 0;
+        this->mHorizontalCenter = msg->width / 2;
+        this->mVerticalCenter = msg->height / 2;
+        this->mDistance = 0;
     }
     else
     {
-        this->horizontalCenter_ = ((double)horizontalWeight / (double)countWhitePixels);
-        this->verticalCenter_ = ((double)verticalWeight / (double)countWhitePixels);
+        this->mHorizontalCenter = ((double)horizontalWeight / (double)countWhitePixels);
+        this->mVerticalCenter = ((double)verticalWeight / (double)countWhitePixels);
         double totalPixels = msg->width * msg->height;
-        this->distance_ = ((double)countWhitePixels / totalPixels) * 100.0;
+        this->mDistance = ((double)countWhitePixels / totalPixels) * 100.0;
     }
 
     int thickness = 2;
     int lineType = 8;
     cv::ellipse(cv_bridge::toCvShare(msg, "bgr8")->image,
-                cv::Point(this->horizontalCenter_ * msg->width / 100.0, this->verticalCenter_ * msg->height / 100.0),
+                cv::Point(this->mHorizontalCenter * msg->width / 100.0, this->mVerticalCenter * msg->height / 100.0),
                 cv::Size(5, 5),
                 0,
                 0,
@@ -126,8 +127,13 @@ void FindBrightObject::findBright(sensor_msgs::msg::Image::SharedPtr msg)
                 cv::Scalar(255, 0, 0),
                 thickness,
                 lineType);
-    cv::imshow("view", cv_bridge::toCvShare(msg, "bgr8")->image);
-    cv::waitKey(1);
+    bool usePreview = get_parameter("use_preview").as_bool();
+    if (usePreview)
+    {
+        RCLCPP_INFO(this->get_logger(), "object info: x=%d, y=%d", horizontalWeight, verticalWeight);
+        cv::imshow("view", mask);
+        cv::waitKey(1);
+    }
 }
 
 void FindBrightObject::findHSV(sensor_msgs::msg::Image::SharedPtr msg)
@@ -147,16 +153,10 @@ void FindBrightObject::findHSV(sensor_msgs::msg::Image::SharedPtr msg)
     cv::Mat mask;
     cv::inRange(toHSV, lower_bound, upper_bound, mask);
 
-    // Remove white dots and black dots from the mask to prepare for contours
-    cv::Mat cleaned;
-    cv::morphologyEx(mask, cleaned, cv::MORPH_OPEN,
-                     cv::getStructuringElement(cv::MORPH_ELLIPSE, {5, 5}));
-    cv::morphologyEx(cleaned, cleaned, cv::MORPH_CLOSE,
-                     cv::getStructuringElement(cv::MORPH_ELLIPSE, {7, 7}));
-
     std::vector<std::vector<cv::Point>> contours;
-    cv::findContours(cleaned, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+    cv::findContours(mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 
+    double circularityThreshold = get_parameter("circularity").as_double();
     double bestCircularity = 0.0;
     int bestIndex = -1;
     // Find the most circle like circle
@@ -166,16 +166,20 @@ void FindBrightObject::findHSV(sensor_msgs::msg::Image::SharedPtr msg)
         double perimeter = cv::arcLength(contours[i], true);
 
         if (perimeter == 0)
-            continue;
-
-        double circularity = 4 * CV_PI * area / (perimeter * perimeter);
-
-        if (area < 50)
-            continue;
-
-        if (circularity > bestCircularity)
         {
-            bestCircularity = circularity;
+            continue;
+        }
+
+        double expectedArea = perimeter * perimeter;
+        double areaPerimeterRatio = area / expectedArea;
+        if (area < 50)
+        {
+            continue;
+        }
+
+        if (areaPerimeterRatio > bestCircularity && areaPerimeterRatio > circularityThreshold)
+        {
+            bestCircularity = areaPerimeterRatio;
             bestIndex = i;
         }
     }
@@ -186,25 +190,33 @@ void FindBrightObject::findHSV(sensor_msgs::msg::Image::SharedPtr msg)
     if (bestIndex >= 0)
     {
         cv::minEnclosingCircle(contours[bestIndex], center, radius);
-        //y=28.8-0.32x rough  distance estimation using linearization from radius
-        distance_ = 28.8-0.32 * radius;
-        horizontalCenter_ = center.x;
-        verticalCenter_ = center.y;
+        // y=28.8-0.32x rough  distance estimation using linearization from radius
+        mDistance = 28.8 - 0.32 * radius;
+        mHorizontalCenter = center.x;
+        mVerticalCenter = center.y;
     }
     else
     {
-        this->horizontalCenter_ = msg->width / 2;
-        this->verticalCenter_ = msg->height / 2;
-        this->distance_ = 0;
-        center = cv::Point(horizontalCenter_, verticalCenter_);
+        mHorizontalCenter = msg->width / 2;
+        mVerticalCenter = msg->height / 2;
+        mDistance = 0;
+        center = cv::Point(mHorizontalCenter, mVerticalCenter);
         radius = 5;
     }
     cv::circle(img, center, (int)radius, cv::Scalar(0, 255, 0), 2);
+    cv::circle(mask, center, (int)radius, cv::Scalar(0, 255, 0), 2);
 
-    int thickness = 2;
-    int lineType = 8;
-    cv::imshow("view", img);
-    cv::waitKey(1);
+    bool usePreview = get_parameter("use_preview").as_bool();
+    if (usePreview)
+    {
+        RCLCPP_INFO(this->get_logger(), "object info: found=%d circularity=%F, x=%F, y=%F",
+                    bestIndex > 0,
+                    bestCircularity,
+                    mHorizontalCenter,
+                    mVerticalCenter);
+        cv::imshow("view", img);
+        cv::waitKey(1);
+    }
 }
 
 int main(int argc, char *argv[])

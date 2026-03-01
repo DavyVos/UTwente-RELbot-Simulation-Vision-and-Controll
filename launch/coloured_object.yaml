@@ -1,0 +1,14 @@
+
+launch:
+- node:
+    pkg: "assignment1"
+    exec: "findobject"
+    param:
+      - name: method
+        value: "hsvcircle"
+      - name: hsv_lower
+        value: [95,50,100]
+      - name: hsv_upper
+        value: [105,200,200]
+      - name: use_preview
+        value: true

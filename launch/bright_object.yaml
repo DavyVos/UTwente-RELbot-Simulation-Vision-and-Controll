@@ -1,0 +1,9 @@
+launch:
+- node:
+    pkg: "assignment1"
+    exec: "findobject"
+    param:
+      - name: method
+        value: "brightness"
+      - name: use_preview
+        value: true

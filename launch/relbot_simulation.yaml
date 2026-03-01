@@ -1,0 +1,38 @@
+launch:
+
+- node:
+    pkg: "relbot_simulator"
+    exec: "relbot_simulator"
+
+- node:
+    pkg: "relbot_adapter"
+    exec: "relbot_adapter"
+    param:
+      - name: use_twist_cmd
+        value: true
+      - name: max_speed
+        value: 0.5
+      - name: max_speed_rads
+        value: 10.123456789
+      - name: robotmode
+        value: "sim"
+
+- node:
+    pkg: "turtlesim"
+    exec: "turtlesim_node"
+
+- node:
+    pkg: "assignment1"
+    exec: "findobject"
+    param:
+      - name: method
+        value: "hsvcircle"
+      - name: hsv_lower
+        value: [95,94,180]
+      - name: hsv_upper
+        value: [105,255,255]
+    remap:
+      - from: "/image"
+        to: "/output/moving_camera"
+
+

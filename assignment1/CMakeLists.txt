@@ -34,7 +34,7 @@ ament_target_dependencies(brightness
 )
 target_link_libraries(brightness ${OpenCV_LIBS} ${cpp_typesupport_target})
 
-add_executable(findobject src/FindBrightObject.cpp)
+add_executable(findobject src/FindObject.cpp)
 ament_target_dependencies(findobject
   rclcpp
   std_msgs

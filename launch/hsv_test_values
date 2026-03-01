@@ -1,0 +1,13 @@
+# hsv_lower:="[100,43,90]" -p hsv_upper:="[105,255,157]"
+
+- name: hsv_lower
+  value: [90,100,130]
+- name: hsv_upper
+  value: [102,255,250]
+
+
+# 
+- name: hsv_lower
+  value: [95,94,180]
+- name: hsv_upper
+  value: [105,255,255]

@@ -12,22 +12,21 @@
 
 using namespace std::chrono_literals;
 
-const int totalPixels = 76800;
-
 class DetectBrightness : public rclcpp::Node
 {
 public:
     DetectBrightness()
         : Node("DetectBrightness")
     {
-        declare_parameter<float>("threshold", 80.0);
-        publisher_ = this->create_publisher<assignment1::msg::ObjectBrightness>("brightness", 10);
+        declare_parameter<float>("threshold", 80.0);    //Set the theshold for 
+        declare_parameter<bool>("use_preview", false);  //Display a preview window of what the image processor sees
+        mPublisher = this->create_publisher<assignment1::msg::ObjectBrightness>("brightness", 10);
         auto timer_callback =
             [this]() -> void
         {
             auto message = assignment1::msg::ObjectBrightness();
-            message.brightness = brightness_;
-            if (isDark)
+            message.brightness = mBrightness;
+            if (mIsDark)
             {
                 message.dark = true;
                 RCLCPP_INFO(this->get_logger(), "Average light value %f, It is dark", message.brightness);
@@ -37,9 +36,9 @@ public:
                 message.dark = false;
                 RCLCPP_INFO(this->get_logger(), "Average light value %f, It is light", message.brightness);
             }
-            this->publisher_->publish(message);
+            this->mPublisher->publish(message);
         };
-        timer_ = this->create_wall_timer(100ms, timer_callback);
+        mTimer = this->create_wall_timer(100ms, timer_callback);
 
         auto image_callback =
             [this](const sensor_msgs::msg::Image::SharedPtr msg) -> void
@@ -48,19 +47,22 @@ public:
             // https://stackoverflow.com/questions/10344246/how-can-i-convert-a-cvmat-to-a-gray-scale-in-opencv
             cv::Mat grayImage;
             cvtColor(image, grayImage, CV_BGR2GRAY);
-            cv::imshow("view", image);
-            cv::waitKey(1);
             int totalLight = 0;
             // https://stackoverflow.com/questions/4504687/cycle-through-pixels-with-opencv
             for (int i = 0; i < image.rows; i++)
+            {
                 for (int j = 0; j < grayImage.cols; j++)
+                {
                     totalLight += grayImage.at<uchar>(i, j);
+                }
+            }
 
-            double avgLightPP = (double)totalLight / (double)totalPixels;
-            brightness_ = avgLightPP;
-            this->isDark = avgLightPP < get_parameter("threshold").as_double();
+            double totalCameraPixels = msg->width * msg->height;
+            double avgLightPP = (double)totalLight / totalCameraPixels;
+            mBrightness = avgLightPP;
+            this->mIsDark = avgLightPP < get_parameter("threshold").as_double();
 
-            if (isDark)
+            if (mIsDark)
             {
                 RCLCPP_INFO(this->get_logger(),
                             "Received image with width: %u, height: %u, Average light amount: %f, it is: DARK",
@@ -74,21 +76,20 @@ public:
             }
         };
 
-        subscription_ = this->create_subscription<sensor_msgs::msg::Image>(
+        mSubscription = this->create_subscription<sensor_msgs::msg::Image>(
             "image", // topic name
             10,
             image_callback);
     }
 
 private:
-    rclcpp::TimerBase::SharedPtr timer_;
-    rclcpp::Publisher<assignment1::msg::ObjectBrightness>::SharedPtr publisher_;
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subscription_;
-    size_t count_;
-    double brightness_;
-    bool isDark;
+    rclcpp::TimerBase::SharedPtr mTimer;
+    rclcpp::Publisher<assignment1::msg::ObjectBrightness>::SharedPtr mPublisher;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr mSubscription;
+    size_t mCount;
+    double mBrightness;
+    bool mIsDark;
 };
-
 
 int main(int argc, char *argv[])
 {

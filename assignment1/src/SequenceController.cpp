@@ -13,6 +13,8 @@
 #include <tuple>
 #include <iostream>
 #include "presets.h"
+#include "geometry_msgs/msg/point_stamped.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
 
 using namespace std::chrono_literals;
 using namespace std;
@@ -35,6 +37,7 @@ private:
     void toLocationMode();
     rclcpp::Publisher<relbot_msgs::msg::RelbotMotors>::SharedPtr mPublisher;
     rclcpp::Subscription<assignment1::msg::ObjectPosition>::SharedPtr mSubscriber;
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr mPoseSubscriber;
     rclcpp::TimerBase::SharedPtr mTimer;
     int mSetPointsIterator = 0;
     double mThetaZ = 0.0;
@@ -42,7 +45,6 @@ private:
     double mEstimatedYError = 0.0;
     double mEstimatedXError = 0.0;
     double mEstimatedThetaZError = 0.0;
-    tuple<double, double, double> currentObjectPosition_;
 };
 
 SequenceController::SequenceController() : Node("SequenceController")
@@ -52,21 +54,27 @@ SequenceController::SequenceController() : Node("SequenceController")
 
     // Closed loop controller parameters
     declare_parameter<double>("h", 0.001);
-    declare_parameter<double>("tau", 10.0);
-    declare_parameter<uint8_t>("preset", 0);
+    declare_parameter<double>("tau", 10.0);  // Time constant
+    declare_parameter<uint8_t>("preset", 0); // Choose preset number (0 - 3)
+    string mode = get_parameter("mode").as_string();
+    auto delay = 1ms;
+    if (mode == "preset")
+    {
+        delay = 1000ms;
+    }
 
     this->mPublisher = this->create_publisher<relbot_msgs::msg::RelbotMotors>("/input/motor_cmd", 10);
     auto set_points_callback =
-        [this]() -> void {
-            this->controllLoop();
-        };
-    mTimer = this->create_wall_timer(1ms, set_points_callback);
+        [this]() -> void
+    {
+        this->controllLoop();
+    };
+    mTimer = this->create_wall_timer(delay, set_points_callback);
 
     auto object_position_callback =
         [this](const assignment1::msg::ObjectPosition::SharedPtr msg) -> void
     {
         RCLCPP_INFO(this->get_logger(), "Received object position: %F, %F", msg->x, msg->y);
-        this->currentObjectPosition_ = tuple<double, double, double>(msg->x, msg->y, msg->z);
         const string mode = get_parameter("mode").as_string();
         const double distance = sqrt(((60 - msg->x) * (60 - msg->x)) + (msg->z * msg->z));
 
@@ -95,11 +103,18 @@ SequenceController::SequenceController() : Node("SequenceController")
         }
     };
     mSubscriber = this->create_subscription<assignment1::msg::ObjectPosition>("objectpos", 10, object_position_callback);
+
+
+    auto poseSubscriberCallback = 
+    [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg) -> void
+    {
+        RCLCPP_INFO(this->get_logger(), "Receied pose %F", msg->pose.position.x);
+    };
+    mPoseSubscriber = this->create_subscription<geometry_msgs::msg::PoseStamped>("/output/robot_pose", 10, poseSubscriberCallback);
 }
 
 void SequenceController::followMode()
 {
-    auto [x, y, z] = this->currentObjectPosition_;
     auto message = relbot_msgs::msg::RelbotMotors();
     // According to x deviation from center adjust left and right wheel velocity (max between 0 and 2.0)
     message.left_wheel_vel = -(mForward - mThetaZ);
@@ -140,7 +155,7 @@ void SequenceController::presetMode()
     RCLCPP_INFO(this->get_logger(), "Publishing: sequence point %F", message.left_wheel_vel);
     this->mPublisher->publish(message);
     mSetPointsIterator++;
-    if (mSetPointsIterator > 4)
+    if (mSetPointsIterator > 7)
     {
         mSetPointsIterator = 0;
     }

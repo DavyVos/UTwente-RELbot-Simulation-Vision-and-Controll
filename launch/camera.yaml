@@ -1,0 +1,7 @@
+launch:
+
+- node:
+    pkg: "cam2image_vm2ros"
+    exec: "cam2image"
+    param:
+      - from: "/home/davydoescode/ros2_ws/src/cam2image_vm2ros/config/cam2image.yaml"

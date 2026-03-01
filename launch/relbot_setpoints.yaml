@@ -1,0 +1,14 @@
+launch:
+
+- node:
+    pkg: "relbot_simulator"
+    exec: "relbot_simulator"
+
+- node:
+    pkg: "assignment1"
+    exec: "sequencecontroller"
+    param:
+      - name: mode
+        value: follow
+      - name: mmode
+        value: preset
